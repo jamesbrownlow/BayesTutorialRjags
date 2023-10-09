@@ -1,5 +1,8 @@
+
+rm(list=ls())
 library(rjags)
 library(coda)
+library(fitdistrplus)
 
 # Define your data
 observed_successes <- 3  # Replace with the number of observed successes
@@ -40,13 +43,23 @@ data_list <- list(
   trials = total_trials
 )
 
+#initialize p with a function
+initialP = function(){
+  list(p=runif(1))
+}
+
 # Initialize JAGS model
 jags_model <- jags.model(textConnection(model_code), data = data_list,
-                    n.chains = 3)
+                    n.chains = 4, inits = initialP)
 
 # Run the MCMC simulation
 jags_samples <- coda.samples(jags_model, variable.names = "p", 
                     n.iter = n_iterations, n.burnin = n_burnin, thin = n_thin)
+
+summary(jags_samples)
+
+#gelman.plot((jags_samples))
+#gelman.diag(jags_samples)
 
 # Load the coda package for posterior analysis
 library(coda)
@@ -60,7 +73,6 @@ summary(posterior_samples)
 # Plot the posterior distribution
 plot(posterior_samples, main = "Posterior Distribution of p")
 
-
 kd = density(posterior_samples)
 plot(kd, lwd=3)
 
@@ -71,7 +83,6 @@ modeProb = kd$x[kd$y==modePost]
 stdPost = sd(posterior.p)
 pAxis = seq(0, 0.8, length.out=50)
 lines(pAxis, dnorm(pAxis, mean=meanPost, sd = stdPost), col='green', lty=2,lwd=3)
-
 
 sortedSamples = sort(posterior_samples)
 nSorted = length(sortedSamples)
@@ -94,23 +105,21 @@ grid()
 # A posterior predictive distribution accounts for uncertainty about 
 # p, taken from the posterior distribution of p.  
 
-#Posterior predictive distribution is original likelihood times posterior. 
-# It's the predictions on 'more' data, given your current data. 
-# But current data is itself dependent on the prior. So really, 
-# it's predicted 'more' data given you've worked out the posterior.
+# Posterior predictive distribution is original likelihood times a 'prior'
+# that is the posterior distribution.
+#
+# It's a predictions on 'more' data, given your current data. 
 
-#To find the posterior,  group multiply the likelihood of data with prior. 
-#Posterior of Binomial with Beta Prior
+# To find the posterior predictive distribution, group multiply the
+# likelihood of data by prior. 
+# Posterior of Binomial with Beta Prior
 
-#predictive probability of a x successes is
+# predictive probability of a x successes is
 # p(x|data) = integral(likelihood(x|p)*posterior(p|data))
 
 # we do not have a closed form for posterior(p|data) thus
 # approximate it with a 'fitted' distribution or use data product.
 
-#posterior pred dist'n
-# prior is the posterior dist'n of p
-# likelihood is binomial, as usual
 
 postPredModel_code <- "
 model {
@@ -118,16 +127,17 @@ model {
   successes ~ dbin(p, trials)
   
   # Prior: normal approximation to posterior
-  p ~ dnorm(m, 1/s) # the new prior for predicted posterior
+  p ~ dnorm(m, 1/s*s) # the new prior for predicted posterior
 }
 "
 # data list
-postData_list = list(successes = observed_successes, trials = total_trials,
-                m = meanPost, s = stdPost)
+postPredModel_list = list(successes= observed_successes, m = meanPost, 
+                          trials = total_trials, s = stdPost)
 
 # initialize  the model
 jags_model_Post <- jags.model(textConnection(postPredModel_code), 
-                      data = postData_list, n.chains = 3)
+                      data = postPredModel_list, n.chains = 4,
+                      inits = initialP)
 
 # Run the MCMC simulation
 jags_samples_Post <- coda.samples(jags_model_Post, variable.names = "p", 
@@ -141,9 +151,72 @@ post_Pred_samples <- as.mcmc(jags_samples_Post[[1]])
 
 kd_PostP = density(post_Pred_samples)
 
+# fit a beta distribution to the post_Pred_samples
+# need this for the MCMC to get posterior predictive successes
+bd = as.numeric(post_Pred_samples)
+fit_beta = fitdist(bd, 'beta')
+print(fit_beta)
+
+
 plot(kd, lwd=3, col='red', lty=2)
 lines(kd_PostP, lwd=3, xlab='probability of success', col='black')
 
-legend('topright',c('predictive posterior','posterior'), col=c('black', 'red'),
-       lty=c(1,2), lwd = c(3,3))
+HPDI = HPDinterval((jags_samples_Post), p = 0.9)
+print(HPDI)
+print(as.numeric(HPDI[[1]][1:2]))
+abline(v = c(HPDI[[1]][1], HPDI[[1]][2]), col='orange', lty=2, lwd=3)
+
+legend('topright',c('posterior predictive','posterior', 'post pred HPDI 90%'), 
+       col=c('black', 'red','orange'),
+       lty=c(1,2,2), lwd = c(3,3,3))
 grid()
+
+rHat = gelman.diag(jags_samples_Post)
+print(str(rHat))
+
+#####################################################################
+## posterior predictive on number of failures in next 13 launches
+
+newTrials = 13
+
+postPredModelSuccess_code <- "
+model {
+   # likelihood
+   successes ~ dbin(p, trials)
+
+   # prior
+   p ~ dbeta(s1, s2)
+  
+}
+"
+
+# Create data list for prdictive posterior, number of successes
+#postPredSuccesses_list = list(trials = newTrials)
+
+postPredSuccesses_list <- list(s1 = as.numeric(fit_beta[[1]]['shape1']),
+                               s2 = as.numeric(fit_beta[[1]]['shape2']),
+                               trials = newTrials
+)
+
+# data list
+initialSucc = function(){ 
+              p = rnorm(1, m = 0.3, s = 0.1) # approximate
+              list(successes = rbinom(1,newTrials,p))
+}
+
+
+# initialize  the model
+jags_model_PostSucc <- jags.model(textConnection(postPredModelSuccess_code), 
+                              data = postPredSuccesses_list, n.chains = 4, 
+                              inits = initialSucc)
+
+# Run the MCMC simulation
+jags_samples_PostSucc <- coda.samples(jags_model_PostSucc, n.iter = n_iterations,
+                      variable.names = "successes", n.burnin = n_burnin, 
+                      thin = n_thin)
+
+summary(jags_samples_PostSucc)
+post_Pred_samplesSucc <- as.mcmc(jags_samples_PostSucc[[1]])
+hist(post_Pred_samplesSucc, freq = F, main='predictive posterior successes, 13 trials')
+
+
