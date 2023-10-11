@@ -9,8 +9,8 @@ observed_successes <- 3  # Replace with the number of observed successes
 total_trials <- 11       # Replace with the total number of trials
 
 # Specify the number of iterations, burn-in, and thinning
-n_iterations <- 10000
-n_burnin <- 1000
+n_iterations <- 12000
+n_burnin <- 2000
 n_thin <- 1
 
 # Define the model
