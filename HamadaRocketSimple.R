@@ -34,6 +34,7 @@ samples <- coda.samples(jags_model, variable.names = c("p", "n_success"),
           n.iter = 5000)
 
 print(summary(samples))
+plot(samples)
 
 # Extract the posterior samples
 posterior_samples <- as.matrix(samples)
