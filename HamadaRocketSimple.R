@@ -4,7 +4,8 @@ library(rjags)
 # Define the data
 data <- list(
   success = 3,
-  trials = 11
+  trials = 11,
+  trials13 = 13
 )
 
 # Define the JAGS model
@@ -18,18 +19,18 @@ model {
   # Likelihood (binomial)
   success ~ dbin(p, trials)
   
-  #prdictive posterior
+  #predictive posterior for number of successes in 13 trials
   #uncerttainity in p incorporated in 
-  y_rep ~ dbin(p, trials)
+  n_success ~ dbin(p, trials13)
 }
 "
 
 # Compile the model
-jags_model <- jags.model(textConnection(model), data = data, n.chains = 3)
+jags_model <- jags.model(textConnection(model), data = data, n.chains = 4)
 
 # Burn-in and run the MCMC chains
 update(jags_model, 1000)
-samples <- coda.samples(jags_model, variable.names = c("p", "y_rep"), 
+samples <- coda.samples(jags_model, variable.names = c("p", "n_success"), 
           n.iter = 5000)
 
 print(summary(samples))
@@ -42,6 +43,6 @@ kdP = density(post_samples_df$p)
 lines(kdP, col='red', lty=2, lwd = 3)
 legend('topright','posterior distribution p', col='red', lwd=3, lty=2)
 
-hist(post_samples_df$y_rep)
+hist(post_samples_df$n_success, main='posterior predictive successes\n13 trials')
 
 # Plot the posterior distribution
